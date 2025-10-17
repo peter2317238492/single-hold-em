@@ -1,0 +1,21 @@
+{
+  "name": "texas-holdem-poker",
+  "version": "1.0.0",
+  "main": "main.js",
+  "bin": "main.js",
+  "pkg": {
+    "scripts": [
+      "main.js",
+      "index.html",
+      "style.css",
+      "script.js"
+    ],
+    "assets": [
+      "package.json"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  }
+}

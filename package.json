@@ -1,0 +1,44 @@
+{
+  "name": "texas-holdem-poker",
+  "version": "1.0.0",
+  "description": "德州扑克多人游戏",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "poker",
+    "game",
+    "texas-holdem"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.10.2",
+    "electron": "^25.9.8",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.poker.texas-holdem",
+    "productName": "德州扑克",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "style.css",
+      "script.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false
+  }
+}
