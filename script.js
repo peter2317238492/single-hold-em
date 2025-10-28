@@ -67,7 +67,8 @@ class PokerGame {
                 isSmallBlind: false,
                 isBigBlind: false,
                 hasActed: false,
-                isAllIn: false
+                isAllIn: false,
+                isOut: false
             });
         }
         this.renderPlayers();
@@ -83,13 +84,13 @@ class PokerGame {
         
         this.players.forEach(player => {
             const playerDiv = document.createElement('div');
-            playerDiv.className = `player ${player.folded ? 'folded' : ''} ${player.isAllIn ? 'all-in' : ''} ${player.id === this.currentPlayerIndex ? 'active' : ''}`;
+            playerDiv.className = `player ${player.folded ? 'folded' : ''} ${player.isAllIn ? 'all-in' : ''} ${player.isOut ? 'out' : ''} ${player.id === this.currentPlayerIndex ? 'active' : ''}`;
             playerDiv.innerHTML = `
                 <div class="player-name">${player.name} ${player.isDealer ? '(Dealer)' : ''} ${player.isSmallBlind ? '(SmallBlind)' : ''} ${player.isBigBlind ? '(BB)' : ''}</div>
                 <div class="player-cards" id="player-cards-${player.id}"></div>
                 <div class="player-chips">筹码: ${player.chips}</div>
                 <div class="player-bet">下注: ${player.bet}</div>
-                <div class="player-status">${player.folded ? '已弃牌' : player.isAllIn ? '梭哈' : '游戏中'}</div>
+                <div class="player-status">${player.isOut ? '已淘汰' : player.folded ? '已弃牌' : player.isAllIn ? '梭哈' : '游戏中'}</div>
             `;
             playersArea.appendChild(playerDiv);
         });
@@ -106,7 +107,10 @@ class PokerGame {
         this.dealCards();
         this.postBlinds();
         this.gamePhase = 'preflop';
-        this.currentPlayerIndex = (this.bigBlindIndex + 1) % this.playerCount;
+        this.currentPlayerIndex = this.getNextActivePlayerIndex(this.bigBlindIndex);
+        if (this.currentPlayerIndex === -1) {
+            this.currentPlayerIndex = this.bigBlindIndex;
+        }
         
         console.log('游戏开始，已发牌');
         console.log('玩家手牌:', this.players[0].cards);
@@ -130,21 +134,65 @@ class PokerGame {
         this.players.forEach(player => {
             player.cards = [];
             player.bet = 0;
-            player.folded = false;
-            player.hasActed = false;
-            player.isAllIn = false;
+            player.folded = player.isOut;
+            player.hasActed = player.isOut;
+            player.isAllIn = player.isOut;
             player.isDealer = false;
             player.isSmallBlind = false;
             player.isBigBlind = false;
         });
-        
-        this.dealerIndex = (this.dealerIndex + 1) % this.playerCount;
+
+        const activePlayers = this.getActivePlayers();
+        if (activePlayers.length < 2) {
+            const remaining = activePlayers[0];
+            this.currentPlayerIndex = remaining ? this.players.indexOf(remaining) : 0;
+            return;
+        }
+
+        this.dealerIndex = this.getNextActivePlayerIndex(this.dealerIndex);
+        if (this.dealerIndex === -1) {
+            this.dealerIndex = this.players.indexOf(activePlayers[0]);
+        }
+
         this.smallBlindIndex = this.dealerIndex;
-        this.bigBlindIndex = (this.dealerIndex + 1) % this.playerCount;
-        
+        this.bigBlindIndex = this.getNextActivePlayerIndex(this.smallBlindIndex);
+        if (this.bigBlindIndex === -1) {
+            this.bigBlindIndex = this.smallBlindIndex;
+        }
+
+        this.currentPlayerIndex = this.getNextActivePlayerIndex(this.bigBlindIndex);
+        if (this.currentPlayerIndex === -1) {
+            this.currentPlayerIndex = this.smallBlindIndex;
+        }
+
         this.players[this.dealerIndex].isDealer = true;
         this.players[this.smallBlindIndex].isSmallBlind = true;
         this.players[this.bigBlindIndex].isBigBlind = true;
+    }
+
+    getActivePlayers() {
+        return this.players.filter(player => !player.isOut);
+    }
+
+    getActivePlayerCount() {
+        return this.getActivePlayers().length;
+    }
+
+    getNextActivePlayerIndex(startIndex) {
+        const total = this.players.length;
+        if (total === 0) {
+            return -1;
+        }
+
+        let index = typeof startIndex === 'number' ? startIndex : -1;
+        for (let i = 0; i < total; i++) {
+            index = (index + 1) % total;
+            const candidate = this.players[index];
+            if (!candidate.isOut) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     createDeck() {
@@ -183,6 +231,7 @@ class PokerGame {
     dealCards() {
         for (let i = 0; i < 2; i++) {
             for (let player of this.players) {
+                if (player.isOut) continue;
                 player.cards.push(this.deck.pop());
             }
         }
@@ -193,7 +242,12 @@ class PokerGame {
         this.players.forEach(player => {
             const cardsDiv = document.getElementById(`player-cards-${player.id}`);
             if (!cardsDiv) {
-                console.error(`无法找到玩家 ${player.id} 的卡片容器`);
+                console.error(`无法找到玩家 ${player.id} 的卡牌区域`);
+                return;
+            }
+            cardsDiv.classList.toggle('out', player.isOut);
+            if (player.isOut) {
+                cardsDiv.innerHTML = '';
                 return;
             }
             cardsDiv.innerHTML = '';
@@ -212,12 +266,16 @@ class PokerGame {
                 cardsDiv.appendChild(cardDiv);
             });
         });
-        console.log('玩家牌已渲染');
+        console.log('玩家手牌渲染完成');
     }
 
     postBlinds() {
         const smallBlindPlayer = this.players[this.smallBlindIndex];
         const bigBlindPlayer = this.players[this.bigBlindIndex];
+
+        if (!smallBlindPlayer || smallBlindPlayer.isOut || !bigBlindPlayer || bigBlindPlayer.isOut) {
+            return;
+        }
         
         const smallBlindAmount = this.commitChips(smallBlindPlayer, this.smallBlind);
         const bigBlindAmount = this.commitChips(bigBlindPlayer, this.bigBlind);
@@ -249,12 +307,11 @@ class PokerGame {
     playerAction(action) {
 
         if (this.currentPlayerIndex !== 0) return;
-
-
+        if (this.gameOver) return;
 
         const player = this.players[0];
 
-        if (!player || player.folded || player.isAllIn) return;
+        if (!player || player.folded || player.isAllIn || player.isOut) return;
 
 
 
@@ -405,7 +462,7 @@ class PokerGame {
 
         const player = this.players[this.currentPlayerIndex];
 
-        if (!player || player.folded || player.isAllIn) {
+        if (!player || player.folded || player.isAllIn || player.isOut) {
 
             this.nextPlayer();
 
@@ -608,8 +665,8 @@ class PokerGame {
 
     resetPlayerHasActed() {
         this.players.forEach(player => {
-            if (!player.folded) {
-                player.hasActed = player.isAllIn;
+            if (!player.folded && !player.isOut) {
+                player.hasActed = player.isAllIn || player.isOut;
             }
         });
     }
@@ -622,18 +679,19 @@ class PokerGame {
             return;
         }
         
+        const totalPlayers = this.players.length || 1;
         let safetyCounter = 0;
         do {
-            this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
+            this.currentPlayerIndex = (this.currentPlayerIndex + 1) % totalPlayers;
             safetyCounter++;
-            if (safetyCounter > this.playerCount) {
+            if (safetyCounter > totalPlayers) {
                 // All remaining players are either folded or all-in
                 if (this.checkRoundEnd()) {
                     this.nextPhase();
                 }
                 return;
             }
-        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn);
+        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn || this.players[this.currentPlayerIndex].isOut);
         
         this.updateUI();
         
@@ -643,7 +701,7 @@ class PokerGame {
     }
 
     checkRoundEnd() {
-        const activePlayers = this.players.filter(p => !p.folded);
+        const activePlayers = this.players.filter(p => !p.folded && !p.isOut);
         if (activePlayers.length === 1) {
             const solePlayer = activePlayers[0];
             if (!solePlayer.handType) {
@@ -671,7 +729,7 @@ class PokerGame {
 
             player.bet = 0;
 
-            player.hasActed = player.isAllIn;
+            player.hasActed = player.isAllIn || player.isOut;
 
         });
 
@@ -717,7 +775,7 @@ class PokerGame {
 
 
 
-        const actionablePlayers = this.players.filter(p => !p.folded && !p.isAllIn && p.chips > 0);
+        const actionablePlayers = this.players.filter(p => !p.folded && !p.isAllIn && !p.isOut && p.chips > 0);
 
         if (actionablePlayers.length === 0) {
 
@@ -737,25 +795,26 @@ class PokerGame {
 
         this.currentPlayerIndex = this.smallBlindIndex;
 
+        const totalPlayers = this.players.length || 1;
         let safetyCounter = 0;
 
         do {
 
-            this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
+            this.currentPlayerIndex = (this.currentPlayerIndex + 1) % totalPlayers;
 
             safetyCounter++;
 
-            if (safetyCounter > this.playerCount) {
+            if (safetyCounter > totalPlayers) {
 
                 break;
 
             }
 
-        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn);
+        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn || this.players[this.currentPlayerIndex].isOut);
 
 
 
-        if (safetyCounter > this.playerCount) {
+        if (safetyCounter > totalPlayers) {
 
             if (this.gamePhase !== 'showdown') {
 
@@ -782,9 +841,6 @@ class PokerGame {
         }
 
     }
-
-
-
 
     dealFlop() {
         this.deck.pop();
@@ -827,7 +883,7 @@ class PokerGame {
     }
 
     showdown() {
-        const activePlayers = this.players.filter(p => !p.folded);
+        const activePlayers = this.players.filter(p => !p.folded && !p.isOut);
         
         // 为每个玩家评估手牌并添加日志
         activePlayers.forEach(player => {
@@ -1068,16 +1124,23 @@ class PokerGame {
     endHand(winner) {
         winner.chips += this.pot;
         winner.isWinner = true;
-        this.addLog(`${winner.name} 以 ${winner.handType} 赢得 ${this.pot} 筹码！`);
+        this.addLog(`${winner.name} 用 ${winner.handType} 赢得 ${this.pot} 筹码！`);
         this.pot = 0;
 
-        const eliminatedPlayers = this.players.filter(player => player.chips <= 0);
-        if (eliminatedPlayers.length > 0) {
-            this.handleGameOver(eliminatedPlayers);
+        const eliminatedThisHand = this.players.filter(player => player.chips <= 0 && !player.isOut);
+        eliminatedThisHand.forEach(player => this.markPlayerEliminated(player));
+
+        const activePlayers = this.getActivePlayers();
+        if (activePlayers.length <= 1) {
+            const finalWinner = activePlayers[0] || winner;
+            this.handleGameOver(finalWinner);
         } else {
             this.gamePhase = 'waiting';
-            this.eliminatedPlayerNames = [];
+            this.gameOver = false;
             this.gameOverMessage = '';
+            eliminatedThisHand.forEach(player => {
+                this.addLog(`${player.name} 的筹码耗尽，被淘汰。`);
+            });
         }
 
         this.revealAllCards();
@@ -1086,12 +1149,27 @@ class PokerGame {
         this.updateUI();
     }
 
-    handleGameOver(eliminatedPlayers) {
+    markPlayerEliminated(player) {
+        player.chips = 0;
+        player.isOut = true;
+        player.folded = true;
+        player.isAllIn = true;
+        player.hasActed = true;
+        player.bet = 0;
+        player.cards = [];
+        player.handScore = 0;
+        player.handType = '已淘汰';
+    }
+
+    handleGameOver(finalWinner) {
         this.gameOver = true;
         this.gamePhase = 'finished';
-        this.eliminatedPlayerNames = eliminatedPlayers.map(player => player.name);
-        const namesText = this.eliminatedPlayerNames.join('、');
-        this.gameOverMessage = `游戏结束！${namesText}的筹码耗尽。`;
+        this.eliminatedPlayerNames = [];
+        if (finalWinner) {
+            this.gameOverMessage = '游戏结束！' + finalWinner.name + ' 成为最终赢家，剩余筹码 ' + finalWinner.chips + '。';
+        } else {
+            this.gameOverMessage = '游戏结束！所有玩家的筹码都耗尽。';
+        }
         this.addLog(this.gameOverMessage);
     }
 
@@ -1148,7 +1226,7 @@ class PokerGame {
         
         resultsDiv.innerHTML = '';
         
-        const activePlayers = this.players.filter(p => !p.folded);
+        const activePlayers = this.players.filter(p => !p.folded && !p.isOut);
         
         activePlayers.forEach(player => {
             const playerDiv = document.createElement('div');
@@ -1170,7 +1248,7 @@ class PokerGame {
                         <div class="showdown-player-chips">筹码: ${player.chips}</div>
                     </div>
                 </div>
-                ${player.isWinner ? '<div class="winner-badge">🏆 获胜者</div>' : ''}
+                ${player.isWinner ? '<div class="winner-badge">🏆 胜者</div>' : ''}
             `;
             
             resultsDiv.appendChild(playerDiv);
@@ -1213,6 +1291,7 @@ class PokerGame {
             player.folded = false;
             player.hasActed = false;
             player.isAllIn = false;
+            player.isOut = false;
         });
         this.updateUI();
         this.addLog('游戏已经结束，请重新设置开始新局。');
@@ -1227,6 +1306,16 @@ class PokerGame {
         this.renderCommunityCards();
         this.players.forEach(player => {
             player.isWinner = false;
+            if (player.isOut) {
+                player.handType = '已淘汰';
+                player.handScore = 0;
+                player.cards = [];
+                player.bet = 0;
+                player.folded = true;
+                player.hasActed = true;
+                player.isAllIn = true;
+                return;
+            }
             player.handType = null;
             player.handScore = 0;
             player.cards = [];

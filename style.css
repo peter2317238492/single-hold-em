@@ -134,6 +134,11 @@ header h1 {
     opacity: 0.5;
 }
 
+.player.out {
+    opacity: 0.3;
+    filter: grayscale(60%);
+}
+
 .player.all-in {
     border: 2px solid #f1c40f;
     box-shadow: 0 0 20px rgba(241, 196, 15, 0.4);
@@ -151,6 +156,10 @@ header h1 {
     gap: 5px;
     margin-bottom: 10px;
     min-height: 60px;
+}
+
+.player-cards.out {
+    opacity: 0.2;
 }
 
 .player-cards .card {
@@ -363,6 +372,15 @@ header h1 {
     gap: 15px;
     margin: 20px 0;
 }
+
+.showdown-gameover {
+    margin-top: 10px;
+    font-size: 1.1rem;
+    color: #f39c12;
+    text-align: center;
+}
+
+
 
 .showdown-player {
     display: flex;
