@@ -17,6 +17,8 @@ class PokerGame {
         this.gameOver = false;
         this.eliminatedPlayerNames = [];
         this.gameOverMessage = '';
+        this.winProbability = null; // 存储胜率计算结果
+        this.isCalculatingWinProbability = false; // 是否正在计算胜率
         
         this.initializeEventListeners();
         this.showSetupModal();
@@ -31,6 +33,8 @@ class PokerGame {
         document.getElementById('fold').addEventListener('click', () => this.playerAction('fold'));
         document.getElementById('setup-confirm').addEventListener('click', () => this.setupGame());
         document.getElementById('close-showdown').addEventListener('click', () => this.closeShowdownModal());
+        // 添加胜率计算按钮事件
+        document.getElementById('calculate-odds').addEventListener('click', () => this.calculateWinProbability());
     }
 
     showSetupModal() {
@@ -131,6 +135,7 @@ class PokerGame {
         this.communityCards = [];
         this.pot = 0;
         this.currentBet = 0;
+        this.winProbability = null; // 重置胜率数据
         this.players.forEach(player => {
             player.cards = [];
             player.bet = 0;
@@ -1418,10 +1423,23 @@ class PokerGame {
 
 
         document.getElementById('start-game').disabled = this.gamePhase !== 'waiting' || this.gameOver;
-
+        
+        // 更新胜率计算按钮状态
+        const calculateOddsButton = document.getElementById('calculate-odds');
+        if (calculateOddsButton) {
+            calculateOddsButton.disabled = this.gamePhase === 'waiting' || this.gamePhase === 'showdown' || this.gamePhase === 'finished';
+        }
+        
+        // 根据游戏阶段显示/隐藏胜率显示区域
+        const oddsDisplay = document.getElementById('win-odds-display');
+        if (oddsDisplay) {
+            if (this.gamePhase === 'waiting' || this.gamePhase === 'showdown' || this.gamePhase === 'finished') {
+                oddsDisplay.style.display = 'none';
+            } else if (this.winProbability) {
+                oddsDisplay.style.display = 'block';
+            }
+        }
     }
-
-
 
     getPhaseText() {
         switch (this.gamePhase) {
@@ -1443,6 +1461,190 @@ class PokerGame {
         entry.textContent = message;
         logContent.appendChild(entry);
         logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    // 计算胜率功能
+    calculateWinProbability() {
+        if (this.isCalculatingWinProbability) {
+            this.addLog('正在计算胜率，请稍候...');
+            return;
+        }
+
+        if (this.gamePhase === 'waiting' || this.gamePhase === 'showdown' || this.gamePhase === 'finished') {
+            this.addLog('当前阶段无法计算胜率');
+            return;
+        }
+
+        const player = this.players[0];
+        if (!player || player.cards.length === 0) {
+            this.addLog('没有手牌无法计算胜率');
+            return;
+        }
+
+        this.isCalculatingWinProbability = true;
+        this.addLog('开始计算胜率...');
+
+        // 使用setTimeout避免阻塞UI
+        setTimeout(() => {
+            try {
+                const result = this.monteCarloSimulation();
+                this.winProbability = result;
+                this.displayWinProbability(result);
+                this.addLog(`胜率计算完成: ${result.winRate}%`);
+            } catch (error) {
+                console.error('胜率计算错误:', error);
+                this.addLog('胜率计算失败');
+            } finally {
+                this.isCalculatingWinProbability = false;
+            }
+        }, 100);
+    }
+
+    // 蒙特卡洛模拟
+    monteCarloSimulation(simulations = 1000) {
+        const activePlayers = this.getActivePlayers();
+        if (activePlayers.length <= 1) {
+            return { winRate: 100, tieRate: 0, loseRate: 0 };
+        }
+
+        let wins = 0;
+        let ties = 0;
+        let losses = 0;
+
+        // 获取当前已知的牌
+        const knownCards = [...this.communityCards];
+        this.players.forEach(player => {
+            if (player.cards && player.cards.length > 0) {
+                knownCards.push(...player.cards);
+            }
+        });
+
+        // 进行模拟
+        for (let i = 0; i < simulations; i++) {
+            const result = this.simulateGame(knownCards, activePlayers);
+            if (result.winner === 0) {
+                wins++;
+            } else if (result.winner === -1) {
+                ties++;
+            } else {
+                losses++;
+            }
+        }
+
+        const winRate = (wins / simulations * 100).toFixed(1);
+        const tieRate = (ties / simulations * 100).toFixed(1);
+        const loseRate = (losses / simulations * 100).toFixed(1);
+
+        return { winRate, tieRate, loseRate };
+    }
+
+    // 模拟单局游戏
+    simulateGame(knownCards, activePlayers) {
+        // 创建牌组副本并移除已知牌
+        const remainingDeck = this.createDeckFromKnownCards(knownCards);
+        
+        // 洗牌
+        this.shuffleDeckArray(remainingDeck);
+        
+        // 模拟剩余的公共牌
+        const simulatedCommunityCards = [...this.communityCards];
+        const cardsNeeded = 5 - this.communityCards.length;
+        
+        for (let i = 0; i < cardsNeeded; i++) {
+            simulatedCommunityCards.push(remainingDeck.pop());
+        }
+
+        // 评估每个玩家的手牌
+        const playerHands = activePlayers.map(player => {
+            const allCards = [...player.cards, ...simulatedCommunityCards];
+            const result = this.evaluateHandFromCards(allCards);
+            return { player, result };
+        });
+
+        // 找出最高分数
+        const maxScore = Math.max(...playerHands.map(h => h.result.score));
+        const winners = playerHands.filter(h => h.result.score === maxScore);
+
+        // 返回结果
+        if (winners.length === 1) {
+            return { winner: this.players.indexOf(winners[0].player) };
+        } else {
+            return { winner: -1 }; // 平局
+        }
+    }
+
+    // 从已知牌创建剩余牌组
+    createDeckFromKnownCards(knownCards) {
+        const suits = ['hearts', 'diamonds', 'clubs', 'spades'];
+        const suitSymbols = {'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠'};
+        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        
+        const deck = [];
+        for (let suit of suits) {
+            for (let rank of ranks) {
+                const card = {
+                    rank: rank,
+                    suit: suit,
+                    suitSymbol: suitSymbols[suit],
+                    value: this.getCardValue(rank)
+                };
+                
+                // 检查是否在已知牌中
+                const isKnown = knownCards.some(known => 
+                    known.rank === rank && known.suit === suit
+                );
+                
+                if (!isKnown) {
+                    deck.push(card);
+                }
+            }
+        }
+        
+        return deck;
+    }
+
+    // 洗牌数组
+    shuffleDeckArray(deck) {
+        for (let i = deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+    }
+
+    // 从牌组评估手牌
+    evaluateHandFromCards(cards) {
+        const combinations = this.getCombinations(cards, 5);
+        
+        let bestResult = { score: 0, type: '高牌' };
+        for (let combo of combinations) {
+            const result = this.getHandScore(combo);
+            if (result.score > bestResult.score) {
+                bestResult = result;
+            }
+        }
+        
+        return bestResult;
+    }
+
+    // 显示胜率结果
+    displayWinProbability(result) {
+        const oddsDisplay = document.getElementById('win-odds-display');
+        if (!oddsDisplay) {
+            this.addLog('胜率显示区域未找到');
+            return;
+        }
+
+        // 显示胜率区域
+        oddsDisplay.style.display = 'block';
+        
+        // 更新胜率数值
+        const winValue = oddsDisplay.querySelector('.odds-item.win .odds-value');
+        const tieValue = oddsDisplay.querySelector('.odds-item.tie .odds-value');
+        const loseValue = oddsDisplay.querySelector('.odds-item.lose .odds-value');
+        
+        if (winValue) winValue.textContent = `${result.winRate}%`;
+        if (tieValue) tieValue.textContent = `${result.tieRate}%`;
+        if (loseValue) loseValue.textContent = `${result.loseRate}%`;
     }
 }
 

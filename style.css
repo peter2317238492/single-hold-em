@@ -271,6 +271,11 @@ header h1 {
     color: white;
 }
 
+.btn-info {
+    background: #17a2b8;
+    color: white;
+}
+
 .raise-input {
     padding: 10px;
     border: 2px solid #3498db;
@@ -454,6 +459,69 @@ header h1 {
     font-weight: bold;
     color: #2ecc71;
     animation: pulse 1s infinite;
+}
+
+/* 胜率显示样式 */
+.win-odds-display {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    padding: 15px;
+    margin-top: 15px;
+    border: 2px solid rgba(23, 162, 184, 0.5);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.odds-title {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #17a2b8;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.odds-content {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.odds-item {
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    min-width: 80px;
+    background: rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+}
+
+.odds-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.odds-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #bdc3c7;
+    margin-bottom: 5px;
+}
+
+.odds-value {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: bold;
+}
+
+.odds-item.win .odds-value {
+    color: #2ecc71;
+}
+
+.odds-item.tie .odds-value {
+    color: #f39c12;
+}
+
+.odds-item.lose .odds-value {
+    color: #e74c3c;
 }
 
 @media (max-width: 768px) {
