@@ -240,7 +240,11 @@ class PokerGame {
                 break;
                 
             case 'raise':
-                const raiseAmount = parseInt(document.getElementById('raise-amount').value);
+                const raiseInput = document.getElementById('raise-amount');
+                const raiseValue = raiseInput.value.trim();
+                if (!raiseValue) return;
+                const raiseAmount = parseInt(raiseValue, 10);
+                if (Number.isNaN(raiseAmount)) return;
                 const totalBet = this.currentBet + raiseAmount;
                 const neededChips = totalBet - player.bet;
                 if (neededChips > player.chips || raiseAmount < 1) return;
@@ -356,10 +360,20 @@ class PokerGame {
     checkRoundEnd() {
         const activePlayers = this.players.filter(p => !p.folded);
         if (activePlayers.length === 1) {
-            this.endHand(activePlayers[0]);
+            const solePlayer = activePlayers[0];
+            if (!solePlayer.handType) {
+                const totalCards = solePlayer.cards.length + this.communityCards.length;
+                if (totalCards >= 5) {
+                    this.evaluateHand(solePlayer);
+                } else {
+                    solePlayer.handType = '未摊牌';
+                    solePlayer.handScore = 0;
+                }
+            }
+            this.endHand(solePlayer);
             return true;
         }
-        
+
         const allActed = activePlayers.every(p => p.hasActed);
         const allBetsEqual = activePlayers.every(p => p.bet === this.currentBet);
         
