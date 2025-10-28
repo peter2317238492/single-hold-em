@@ -20,6 +20,9 @@ class PokerGame {
         this.winProbability = null; // 存储胜率计算结果
         this.isCalculatingWinProbability = false; // 是否正在计算胜率
         
+        // AI constants
+        this.AI_BASE_HAND_STRENGTH = 0.3; // Default hand strength for unknown/moderate hands
+        
         this.initializeEventListeners();
         this.showSetupModal();
     }
@@ -489,7 +492,7 @@ class PokerGame {
     // Evaluate AI hand strength (0-1 scale)
     evaluateAIHandStrength(player) {
         if (!player.cards || player.cards.length < 2) {
-            return 0.3; // Default moderate strength
+            return this.AI_BASE_HAND_STRENGTH; // Default moderate strength
         }
 
         const allCards = [...player.cards, ...this.communityCards];
@@ -511,7 +514,7 @@ class PokerGame {
 
     // Evaluate preflop hand strength
     evaluatePreflopStrength(cards) {
-        if (cards.length < 2) return 0.3;
+        if (cards.length < 2) return this.AI_BASE_HAND_STRENGTH;
         
         const card1 = cards[0];
         const card2 = cards[1];
@@ -524,7 +527,7 @@ class PokerGame {
         const gap = highCard - lowCard;
         const isPair = value1 === value2;
         
-        let strength = 0.3; // Base strength
+        let strength = this.AI_BASE_HAND_STRENGTH; // Base strength
         
         // Pairs
         if (isPair) {
@@ -578,7 +581,7 @@ class PokerGame {
             '一对': 0.45,
             '高牌': 0.30
         };
-        return strengths[handType] || 0.30;
+        return strengths[handType] || this.AI_BASE_HAND_STRENGTH;
     }
 
     // Evaluate drawing potential
@@ -595,7 +598,8 @@ class PokerGame {
         allCards.forEach(card => {
             suitCounts[card.suit] = (suitCounts[card.suit] || 0) + 1;
         });
-        const maxSuitCount = Math.max(...Object.values(suitCounts));
+        const suitCountValues = Object.values(suitCounts);
+        const maxSuitCount = suitCountValues.length > 0 ? Math.max(...suitCountValues) : 0;
         if (maxSuitCount === 4) potential += 0.35; // Flush draw
         
         // Check for straight draw
