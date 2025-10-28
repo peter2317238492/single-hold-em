@@ -134,6 +134,11 @@ header h1 {
     opacity: 0.5;
 }
 
+.player.all-in {
+    border: 2px solid #f1c40f;
+    box-shadow: 0 0 20px rgba(241, 196, 15, 0.4);
+}
+
 .player-name {
     font-weight: bold;
     margin-bottom: 10px;
@@ -245,6 +250,11 @@ header h1 {
 .btn-secondary {
     background: #95a5a6;
     color: white;
+}
+
+.btn-warning {
+    background: #f1c40f;
+    color: #333;
 }
 
 .btn-danger {

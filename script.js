@@ -14,6 +14,9 @@ class PokerGame {
         this.bigBlind = 20;
         this.startingChips = 1000;
         this.playerCount = 2;
+        this.gameOver = false;
+        this.eliminatedPlayerNames = [];
+        this.gameOverMessage = '';
         
         this.initializeEventListeners();
         this.showSetupModal();
@@ -24,6 +27,7 @@ class PokerGame {
         document.getElementById('check').addEventListener('click', () => this.playerAction('check'));
         document.getElementById('call').addEventListener('click', () => this.playerAction('call'));
         document.getElementById('raise').addEventListener('click', () => this.playerAction('raise'));
+        document.getElementById('all-in').addEventListener('click', () => this.playerAction('all-in'));
         document.getElementById('fold').addEventListener('click', () => this.playerAction('fold'));
         document.getElementById('setup-confirm').addEventListener('click', () => this.setupGame());
         document.getElementById('close-showdown').addEventListener('click', () => this.closeShowdownModal());
@@ -38,7 +42,11 @@ class PokerGame {
         this.startingChips = parseInt(document.getElementById('starting-chips').value);
         this.smallBlind = parseInt(document.getElementById('small-blind').value);
         this.bigBlind = parseInt(document.getElementById('big-blind').value);
-        
+        this.gameOver = false;
+        this.eliminatedPlayerNames = [];
+        this.gameOverMessage = '';
+        this.gamePhase = 'waiting';
+
         document.getElementById('player-setup').style.display = 'none';
         this.initializePlayers();
         this.updateUI();
@@ -58,7 +66,8 @@ class PokerGame {
                 isDealer: false,
                 isSmallBlind: false,
                 isBigBlind: false,
-                hasActed: false
+                hasActed: false,
+                isAllIn: false
             });
         }
         this.renderPlayers();
@@ -74,13 +83,13 @@ class PokerGame {
         
         this.players.forEach(player => {
             const playerDiv = document.createElement('div');
-            playerDiv.className = `player ${player.folded ? 'folded' : ''} ${player.id === this.currentPlayerIndex ? 'active' : ''}`;
+            playerDiv.className = `player ${player.folded ? 'folded' : ''} ${player.isAllIn ? 'all-in' : ''} ${player.id === this.currentPlayerIndex ? 'active' : ''}`;
             playerDiv.innerHTML = `
                 <div class="player-name">${player.name} ${player.isDealer ? '(Dealer)' : ''} ${player.isSmallBlind ? '(SmallBlind)' : ''} ${player.isBigBlind ? '(BB)' : ''}</div>
                 <div class="player-cards" id="player-cards-${player.id}"></div>
                 <div class="player-chips">筹码: ${player.chips}</div>
                 <div class="player-bet">下注: ${player.bet}</div>
-                <div class="player-status">${player.folded ? '已弃牌' : '游戏中'}</div>
+                <div class="player-status">${player.folded ? '已弃牌' : player.isAllIn ? '梭哈' : '游戏中'}</div>
             `;
             playersArea.appendChild(playerDiv);
         });
@@ -123,6 +132,7 @@ class PokerGame {
             player.bet = 0;
             player.folded = false;
             player.hasActed = false;
+            player.isAllIn = false;
             player.isDealer = false;
             player.isSmallBlind = false;
             player.isBigBlind = false;
@@ -209,131 +219,397 @@ class PokerGame {
         const smallBlindPlayer = this.players[this.smallBlindIndex];
         const bigBlindPlayer = this.players[this.bigBlindIndex];
         
-        smallBlindPlayer.chips -= this.smallBlind;
-        smallBlindPlayer.bet = this.smallBlind;
+        const smallBlindAmount = this.commitChips(smallBlindPlayer, this.smallBlind);
+        const bigBlindAmount = this.commitChips(bigBlindPlayer, this.bigBlind);
         
-        bigBlindPlayer.chips -= this.bigBlind;
-        bigBlindPlayer.bet = this.bigBlind;
+        // Blinds might not be fully covered when the player is short-stacked
+        smallBlindPlayer.bet = smallBlindAmount;
+        bigBlindPlayer.bet = bigBlindAmount;
         
-        this.pot = this.smallBlind + this.bigBlind;
-        this.currentBet = this.bigBlind;
+        this.currentBet = Math.max(smallBlindPlayer.bet, bigBlindPlayer.bet);
+    }
+
+    commitChips(player, amount) {
+        const chipsToCommit = Math.min(amount, player.chips);
+        if (chipsToCommit <= 0) {
+            return 0;
+        }
+        
+        player.chips -= chipsToCommit;
+        player.bet += chipsToCommit;
+        this.pot += chipsToCommit;
+        
+        if (player.chips === 0) {
+            player.isAllIn = true;
+        }
+        
+        return chipsToCommit;
     }
 
     playerAction(action) {
+
         if (this.currentPlayerIndex !== 0) return;
-        
+
+
+
         const player = this.players[0];
-        
+
+        if (!player || player.folded || player.isAllIn) return;
+
+
+
+        const previousBet = this.currentBet;
+
+
+
         switch (action) {
+
             case 'check':
+
                 if (this.currentBet > player.bet) return;
+
                 this.addLog(`${player.name} 过牌`);
+
                 break;
-                
-            case 'call':
+
+
+
+            case 'call': {
+
                 const callAmount = this.currentBet - player.bet;
-                if (callAmount > player.chips) return;
-                player.chips -= callAmount;
-                player.bet += callAmount;
-                this.pot += callAmount;
-                this.addLog(`${player.name} 跟注 ${callAmount}`);
+
+                if (callAmount <= 0) return;
+
+                const committedCall = this.commitChips(player, callAmount);
+
+                if (committedCall === 0) return;
+
+
+
+                if (committedCall < callAmount) {
+
+                    this.addLog(`${player.name} 梭哈投入 ${committedCall}（不足跟注）`);
+
+                } else if (player.isAllIn) {
+
+                    this.addLog(`${player.name} 梭哈跟注 ${committedCall}`);
+
+                } else {
+
+                    this.addLog(`${player.name} 跟注 ${committedCall}`);
+
+                }
+
                 break;
-                
-            case 'raise':
+
+            }
+
+            case 'raise': {
+
                 const raiseInput = document.getElementById('raise-amount');
+
                 const raiseValue = raiseInput.value.trim();
+
                 if (!raiseValue) return;
+
                 const raiseAmount = parseInt(raiseValue, 10);
+
                 if (Number.isNaN(raiseAmount)) return;
+
                 const totalBet = this.currentBet + raiseAmount;
+
                 const neededChips = totalBet - player.bet;
-                if (neededChips > player.chips || raiseAmount < 1) return;
-                player.chips -= neededChips;
-                player.bet = totalBet;
-                this.pot += neededChips;
-                this.currentBet = totalBet;
-                this.addLog(`${player.name} 加注到 ${totalBet}`);
+
+                if (neededChips > player.chips || neededChips < 1) return;
+
+
+
+                const committedRaise = this.commitChips(player, neededChips);
+
+                if (committedRaise !== neededChips) return;
+
+
+
+                this.currentBet = player.bet;
+
+                if (player.isAllIn) {
+                    this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+                } else {
+                    this.addLog(`${player.name} 加注至 ${player.bet}`);
+                }
+
                 this.resetPlayerHasActed();
+
+                raiseInput.value = '';
+
                 break;
-                
+
+            }
+
+            case 'all-in': {
+
+                if (player.chips <= 0) return;
+
+                const allInContribution = this.commitChips(player, player.chips);
+
+                if (allInContribution === 0) return;
+
+
+
+                if (player.bet > previousBet) {
+
+                    this.currentBet = player.bet;
+
+                    this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+
+                    this.resetPlayerHasActed();
+
+                } else if (player.bet === previousBet) {
+
+                    this.addLog(`${player.name} 梭哈跟注 ${player.bet}`);
+
+                } else {
+
+                    this.addLog(`${player.name} 梭哈投入 ${allInContribution}（不足跟注）`);
+
+                }
+
+                break;
+
+            }
+
             case 'fold':
+
                 player.folded = true;
+
                 this.addLog(`${player.name} 弃牌`);
+
                 break;
+
+            default:
+
+                return;
+
         }
-        
+
+
+
         player.hasActed = true;
+
         this.nextPlayer();
+
     }
 
+
     aiPlayerTurn() {
+
         const player = this.players[this.currentPlayerIndex];
-        if (player.folded) {
+
+        if (!player || player.folded || player.isAllIn) {
+
             this.nextPlayer();
+
             return;
+
         }
-        
-        const random = Math.random();
+
+
+
         const callAmount = this.currentBet - player.bet;
-        
-        if (callAmount === 0) {
-            if (random < 0.3) {
+
+        const random = Math.random();
+
+
+
+        if (callAmount <= 0) {
+
+            if (player.chips === 0) {
+
+                player.isAllIn = true;
+
+                player.hasActed = true;
+
+                this.nextPlayer();
+
+                return;
+
+            }
+
+
+
+            if (random < 0.35) {
+
                 this.addLog(`${player.name} 过牌`);
+
             } else {
-                const raiseAmount = Math.floor(Math.random() * 50) + 10;
-                const totalBet = this.currentBet + raiseAmount;
-                const neededChips = totalBet - player.bet;
-                if (neededChips <= player.chips) {
-                    player.chips -= neededChips;
-                    player.bet = totalBet;
-                    this.pot += neededChips;
-                    this.currentBet = totalBet;
-                    this.addLog(`${player.name} 加注到 ${totalBet}`);
-                    this.resetPlayerHasActed();
+
+                const desiredRaise = Math.floor(Math.random() * 50) + 10;
+
+                const raiseAmount = Math.min(desiredRaise, player.chips);
+
+                if (raiseAmount > 0) {
+
+                    const committed = this.commitChips(player, raiseAmount);
+
+                    if (committed > 0) {
+
+                        this.currentBet = player.bet;
+
+                        if (player.isAllIn) {
+
+                            this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+
+                        } else {
+
+                            this.addLog(`${player.name} 加注至 ${player.bet}`);
+
+                        }
+
+                        this.resetPlayerHasActed();
+
+                    } else {
+
+                        this.addLog(`${player.name} 过牌`);
+
+                    }
+
                 } else {
+
                     this.addLog(`${player.name} 过牌`);
+
                 }
+
             }
+
         } else if (callAmount <= player.chips) {
+
             if (random < 0.2) {
+
                 player.folded = true;
+
                 this.addLog(`${player.name} 弃牌`);
+
             } else if (random < 0.7) {
-                player.chips -= callAmount;
-                player.bet += callAmount;
-                this.pot += callAmount;
-                this.addLog(`${player.name} 跟注 ${callAmount}`);
-            } else {
-                const raiseAmount = Math.floor(Math.random() * 50) + 10;
-                const totalBet = this.currentBet + raiseAmount;
-                const neededChips = totalBet - player.bet;
-                if (neededChips <= player.chips) {
-                    player.chips -= neededChips;
-                    player.bet = totalBet;
-                    this.pot += neededChips;
-                    this.currentBet = totalBet;
-                    this.addLog(`${player.name} 加注到 ${totalBet}`);
-                    this.resetPlayerHasActed();
-                } else {
-                    player.chips -= callAmount;
-                    player.bet += callAmount;
-                    this.pot += callAmount;
-                    this.addLog(`${player.name} 跟注 ${callAmount}`);
+
+                const committed = this.commitChips(player, callAmount);
+
+                if (committed > 0) {
+
+                    if (player.isAllIn) {
+
+                        this.addLog(`${player.name} 梭哈跟注 ${committed}`);
+
+                    } else {
+
+                        this.addLog(`${player.name} 跟注 ${committed}`);
+
+                    }
+
                 }
+
+            } else {
+
+                const maxRaise = player.chips - callAmount;
+
+                const desiredRaise = Math.floor(Math.random() * 50) + 10;
+
+                const raiseAmount = Math.min(desiredRaise, Math.max(maxRaise, 0));
+
+                if (raiseAmount > 0) {
+
+                    const totalNeeded = callAmount + raiseAmount;
+
+                    const committed = this.commitChips(player, totalNeeded);
+
+                    if (committed > 0) {
+
+                        this.currentBet = player.bet;
+
+                        if (player.isAllIn) {
+
+                            this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+
+                        } else {
+
+                            this.addLog(`${player.name} 加注至 ${player.bet}`);
+
+                        }
+
+                        this.resetPlayerHasActed();
+
+                    }
+
+                } else {
+
+                    const committed = this.commitChips(player, callAmount);
+
+                    if (committed > 0) {
+
+                        if (player.isAllIn) {
+
+                            this.addLog(`${player.name} 梭哈跟注 ${committed}`);
+
+                        } else {
+
+                            this.addLog(`${player.name} 跟注 ${committed}`);
+
+                        }
+
+                    }
+
+                }
+
             }
+
         } else {
-            player.folded = true;
-            this.addLog(`${player.name} 弃牌`);
+
+            if (random < 0.3) {
+
+                player.folded = true;
+
+                this.addLog(`${player.name} 弃牌`);
+
+            } else {
+
+                const contribution = this.commitChips(player, player.chips);
+
+                if (contribution > 0) {
+
+                    if (player.bet > this.currentBet) {
+
+                        this.currentBet = player.bet;
+
+                        this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+
+                        this.resetPlayerHasActed();
+
+                    } else {
+
+                        this.addLog(`${player.name} 梭哈投入 ${contribution}（不足跟注）`);
+
+                    }
+
+                }
+
+            }
+
         }
-        
+
+
+
         player.hasActed = true;
+
         this.nextPlayer();
+
     }
+
+
+
 
     resetPlayerHasActed() {
         this.players.forEach(player => {
             if (!player.folded) {
-                player.hasActed = false;
+                player.hasActed = player.isAllIn;
             }
         });
     }
@@ -346,9 +622,18 @@ class PokerGame {
             return;
         }
         
+        let safetyCounter = 0;
         do {
             this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
-        } while (this.players[this.currentPlayerIndex].folded);
+            safetyCounter++;
+            if (safetyCounter > this.playerCount) {
+                // All remaining players are either folded or all-in
+                if (this.checkRoundEnd()) {
+                    this.nextPhase();
+                }
+                return;
+            }
+        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn);
         
         this.updateUI();
         
@@ -374,50 +659,132 @@ class PokerGame {
             return true;
         }
 
-        const allActed = activePlayers.every(p => p.hasActed);
-        const allBetsEqual = activePlayers.every(p => p.bet === this.currentBet);
+        const allActed = activePlayers.every(p => p.hasActed || p.isAllIn);
+        const allBetsEqual = activePlayers.every(p => p.bet === this.currentBet || p.isAllIn);
         
         return allActed && allBetsEqual;
     }
 
     nextPhase() {
+
         this.players.forEach(player => {
+
             player.bet = 0;
-            player.hasActed = false;
+
+            player.hasActed = player.isAllIn;
+
         });
+
         this.currentBet = 0;
-        
+
+
+
         switch (this.gamePhase) {
+
             case 'preflop':
+
                 this.gamePhase = 'flop';
+
                 this.dealFlop();
+
                 break;
+
             case 'flop':
+
                 this.gamePhase = 'turn';
+
                 this.dealTurn();
+
                 break;
+
             case 'turn':
+
                 this.gamePhase = 'river';
+
                 this.dealRiver();
+
                 break;
+
             case 'river':
+
                 this.gamePhase = 'showdown';
+
                 this.showdown();
+
                 return;
+
         }
-        
+
+
+
+        const actionablePlayers = this.players.filter(p => !p.folded && !p.isAllIn && p.chips > 0);
+
+        if (actionablePlayers.length === 0) {
+
+            if (this.gamePhase === 'showdown') {
+
+                return;
+
+            }
+
+            this.nextPhase();
+
+            return;
+
+        }
+
+
+
         this.currentPlayerIndex = this.smallBlindIndex;
+
+        let safetyCounter = 0;
+
         do {
+
             this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
-        } while (this.players[this.currentPlayerIndex].folded);
-        
-        this.updateUI();
-        this.addLog(`进入${this.gamePhase}阶段`);
-        
-        if (this.currentPlayerIndex !== 0) {
-            setTimeout(() => this.aiPlayerTurn(), 1000);
+
+            safetyCounter++;
+
+            if (safetyCounter > this.playerCount) {
+
+                break;
+
+            }
+
+        } while (this.players[this.currentPlayerIndex].folded || this.players[this.currentPlayerIndex].isAllIn);
+
+
+
+        if (safetyCounter > this.playerCount) {
+
+            if (this.gamePhase !== 'showdown') {
+
+                this.nextPhase();
+
+            }
+
+            return;
+
         }
+
+
+
+        this.updateUI();
+
+        this.addLog(`进入${this.gamePhase}阶段`);
+
+
+
+        if (this.currentPlayerIndex !== 0) {
+
+            setTimeout(() => this.aiPlayerTurn(), 1000);
+
+        }
+
     }
+
+
+
 
     dealFlop() {
         this.deck.pop();
@@ -703,12 +1070,29 @@ class PokerGame {
         winner.isWinner = true;
         this.addLog(`${winner.name} 以 ${winner.handType} 赢得 ${this.pot} 筹码！`);
         this.pot = 0;
-        this.gamePhase = 'waiting';
-        
+
+        const eliminatedPlayers = this.players.filter(player => player.chips <= 0);
+        if (eliminatedPlayers.length > 0) {
+            this.handleGameOver(eliminatedPlayers);
+        } else {
+            this.gamePhase = 'waiting';
+            this.eliminatedPlayerNames = [];
+            this.gameOverMessage = '';
+        }
+
         this.revealAllCards();
         this.showHandResults();
         this.showShowdownModal();
         this.updateUI();
+    }
+
+    handleGameOver(eliminatedPlayers) {
+        this.gameOver = true;
+        this.gamePhase = 'finished';
+        this.eliminatedPlayerNames = eliminatedPlayers.map(player => player.name);
+        const namesText = this.eliminatedPlayerNames.join('、');
+        this.gameOverMessage = `游戏结束！${namesText}的筹码耗尽。`;
+        this.addLog(this.gameOverMessage);
     }
 
     revealAllCards() {
@@ -791,16 +1175,54 @@ class PokerGame {
             
             resultsDiv.appendChild(playerDiv);
         });
+
+        if (this.gameOver && this.gameOverMessage) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'showdown-gameover';
+            messageDiv.textContent = this.gameOverMessage;
+            resultsDiv.appendChild(messageDiv);
+        }
+
+        const closeButton = document.getElementById('close-showdown');
+        if (closeButton) {
+            closeButton.textContent = this.gameOver ? '重新开始' : '继续游戏';
+        }
         
         modal.style.display = 'flex';
     }
 
     closeShowdownModal() {
         document.getElementById('showdown-modal').style.display = 'none';
-        this.resetForNewHand();
+        if (this.gameOver) {
+            this.prepareForRestart();
+        } else {
+            this.resetForNewHand();
+        }
+    }
+
+    prepareForRestart() {
+        this.communityCards = [];
+        this.pot = 0;
+        this.currentBet = 0;
+        this.players.forEach(player => {
+            player.isWinner = false;
+            player.handType = null;
+            player.handScore = 0;
+            player.cards = [];
+            player.bet = 0;
+            player.folded = false;
+            player.hasActed = false;
+            player.isAllIn = false;
+        });
+        this.updateUI();
+        this.addLog('游戏已经结束，请重新设置开始新局。');
+        this.showSetupModal();
     }
 
     resetForNewHand() {
+        if (this.gameOver) {
+            return;
+        }
         this.communityCards = [];
         this.renderCommunityCards();
         this.players.forEach(player => {
@@ -811,6 +1233,7 @@ class PokerGame {
             player.bet = 0;
             player.folded = false;
             player.hasActed = false;
+            player.isAllIn = false;
         });
         this.renderPlayers();
         this.updateUI();
@@ -818,29 +1241,98 @@ class PokerGame {
     }
 
     updateUI() {
+
         this.renderPlayers();
+
         this.renderPlayerCards();
+
         this.renderCommunityCards();
-        document.getElementById('pot').textContent = `底池: ${this.pot}`;
+
+        document.getElementById('pot').textContent = `彩池: ${this.pot}`;
+
         document.getElementById('round').textContent = `回合: ${this.getPhaseText()}`;
+
         document.getElementById('pot-chips').textContent = this.pot;
-        
+
+
+
+        const player = this.players[0] || { bet: 0, chips: 0, folded: false, isAllIn: false };
+
         const isPlayerTurn = this.currentPlayerIndex === 0 && this.gamePhase !== 'waiting';
-        const player = this.players[0];
-        
-        document.getElementById('check').disabled = !isPlayerTurn || this.currentBet > player.bet;
-        document.getElementById('call').disabled = !isPlayerTurn || this.currentBet === player.bet;
-        document.getElementById('raise').disabled = !isPlayerTurn;
-        document.getElementById('fold').disabled = !isPlayerTurn;
-        document.getElementById('raise-amount').disabled = !isPlayerTurn;
-        document.getElementById('start-game').disabled = this.gamePhase !== 'waiting';
-        
-        if (isPlayerTurn && this.currentBet > player.bet) {
-            document.getElementById('call').textContent = `跟注 ${this.currentBet - player.bet}`;
+
+        const canAct = isPlayerTurn && !player.folded && !player.isAllIn && player.chips > 0;
+
+
+
+        const checkButton = document.getElementById('check');
+
+        checkButton.disabled = !canAct || this.currentBet > player.bet;
+
+
+
+        const callButton = document.getElementById('call');
+
+        const callAmount = Math.max(this.currentBet - player.bet, 0);
+
+        const callDisplay = Math.min(callAmount, player.chips);
+
+        callButton.disabled = !canAct || callAmount === 0;
+
+        if (callAmount > 0 && canAct) {
+
+            if (callAmount > player.chips) {
+
+                callButton.textContent = `跟注 ${callDisplay}（梭哈）`;
+
+            } else {
+
+                callButton.textContent = `跟注 ${callDisplay}`;
+
+            }
+
         } else {
-            document.getElementById('call').textContent = '跟注';
+
+            callButton.textContent = '跟注';
+
         }
+
+
+
+        const raiseButton = document.getElementById('raise');
+
+        const allInButton = document.getElementById('all-in');
+
+        const foldButton = document.getElementById('fold');
+
+        const raiseInput = document.getElementById('raise-amount');
+
+
+
+        raiseButton.disabled = !canAct;
+
+        raiseInput.disabled = !canAct;
+
+        allInButton.disabled = !isPlayerTurn || player.isAllIn || player.chips === 0;
+
+        allInButton.textContent = player.chips > 0 ? `梭哈 ${player.chips}` : '梭哈';
+
+        foldButton.disabled = !isPlayerTurn || player.isAllIn;
+
+
+
+        if (!canAct) {
+
+            raiseInput.value = '';
+
+        }
+
+
+
+        document.getElementById('start-game').disabled = this.gamePhase !== 'waiting' || this.gameOver;
+
     }
+
+
 
     getPhaseText() {
         switch (this.gamePhase) {
@@ -850,6 +1342,7 @@ class PokerGame {
             case 'turn': return '转牌';
             case 'river': return '河牌';
             case 'showdown': return '摊牌';
+            case 'finished': return '比赛结束';
             default: return '未知';
         }
     }
