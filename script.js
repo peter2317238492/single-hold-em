@@ -1511,13 +1511,12 @@ class PokerGame {
         let ties = 0;
         let losses = 0;
 
-        // 获取当前已知的牌
+        // 获取当前已知的牌 - 只包括玩家自己的手牌和公共牌
         const knownCards = [...this.communityCards];
-        this.players.forEach(player => {
-            if (player.cards && player.cards.length > 0) {
-                knownCards.push(...player.cards);
-            }
-        });
+        const player = this.players[0];
+        if (player && player.cards && player.cards.length > 0) {
+            knownCards.push(...player.cards);
+        }
 
         // 进行模拟
         for (let i = 0; i < simulations; i++) {
@@ -1554,9 +1553,24 @@ class PokerGame {
             simulatedCommunityCards.push(remainingDeck.pop());
         }
 
-        // 评估每个玩家的手牌
+        // 为对手分配随机手牌并评估每个玩家的手牌
         const playerHands = activePlayers.map(player => {
-            const allCards = [...player.cards, ...simulatedCommunityCards];
+            let playerCards;
+            
+            // 对于玩家0（人类玩家），使用真实手牌
+            if (player.id === 0) {
+                playerCards = player.cards;
+            } else {
+                // 对于AI玩家，从剩余牌组中随机分配2张牌
+                playerCards = [];
+                for (let i = 0; i < 2; i++) {
+                    if (remainingDeck.length > 0) {
+                        playerCards.push(remainingDeck.pop());
+                    }
+                }
+            }
+            
+            const allCards = [...playerCards, ...simulatedCommunityCards];
             const result = this.evaluateHandFromCards(allCards);
             return { player, result };
         });
