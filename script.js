@@ -20,6 +20,9 @@ class PokerGame {
         this.winProbability = null; // 存储胜率计算结果
         this.isCalculatingWinProbability = false; // 是否正在计算胜率
         
+        // AI constants
+        this.AI_BASE_HAND_STRENGTH = 0.3; // Default hand strength for unknown/moderate hands
+        
         this.initializeEventListeners();
         this.showSetupModal();
     }
@@ -464,205 +467,364 @@ class PokerGame {
 
 
     aiPlayerTurn() {
-
         const player = this.players[this.currentPlayerIndex];
 
         if (!player || player.folded || player.isAllIn || player.isOut) {
-
             this.nextPlayer();
-
             return;
-
         }
 
-
-
+        // Evaluate hand strength and game state
+        const handStrength = this.evaluateAIHandStrength(player);
+        const position = this.getPlayerPosition(this.currentPlayerIndex);
+        const potOdds = this.calculatePotOdds(player);
         const callAmount = this.currentBet - player.bet;
-
-        const random = Math.random();
-
-
-
-        if (callAmount <= 0) {
-
-            if (player.chips === 0) {
-
-                player.isAllIn = true;
-
-                player.hasActed = true;
-
-                this.nextPlayer();
-
-                return;
-
-            }
-
-
-
-            if (random < 0.35) {
-
-                this.addLog(`${player.name} 过牌`);
-
-            } else {
-
-                const desiredRaise = Math.floor(Math.random() * 50) + 10;
-
-                const raiseAmount = Math.min(desiredRaise, player.chips);
-
-                if (raiseAmount > 0) {
-
-                    const committed = this.commitChips(player, raiseAmount);
-
-                    if (committed > 0) {
-
-                        this.currentBet = player.bet;
-
-                        if (player.isAllIn) {
-
-                            this.addLog(`${player.name} 梭哈至 ${player.bet}`);
-
-                        } else {
-
-                            this.addLog(`${player.name} 加注至 ${player.bet}`);
-
-                        }
-
-                        this.resetPlayerHasActed();
-
-                    } else {
-
-                        this.addLog(`${player.name} 过牌`);
-
-                    }
-
-                } else {
-
-                    this.addLog(`${player.name} 过牌`);
-
-                }
-
-            }
-
-        } else if (callAmount <= player.chips) {
-
-            if (random < 0.2) {
-
-                player.folded = true;
-
-                this.addLog(`${player.name} 弃牌`);
-
-            } else if (random < 0.7) {
-
-                const committed = this.commitChips(player, callAmount);
-
-                if (committed > 0) {
-
-                    if (player.isAllIn) {
-
-                        this.addLog(`${player.name} 梭哈跟注 ${committed}`);
-
-                    } else {
-
-                        this.addLog(`${player.name} 跟注 ${committed}`);
-
-                    }
-
-                }
-
-            } else {
-
-                const maxRaise = player.chips - callAmount;
-
-                const desiredRaise = Math.floor(Math.random() * 50) + 10;
-
-                const raiseAmount = Math.min(desiredRaise, Math.max(maxRaise, 0));
-
-                if (raiseAmount > 0) {
-
-                    const totalNeeded = callAmount + raiseAmount;
-
-                    const committed = this.commitChips(player, totalNeeded);
-
-                    if (committed > 0) {
-
-                        this.currentBet = player.bet;
-
-                        if (player.isAllIn) {
-
-                            this.addLog(`${player.name} 梭哈至 ${player.bet}`);
-
-                        } else {
-
-                            this.addLog(`${player.name} 加注至 ${player.bet}`);
-
-                        }
-
-                        this.resetPlayerHasActed();
-
-                    }
-
-                } else {
-
-                    const committed = this.commitChips(player, callAmount);
-
-                    if (committed > 0) {
-
-                        if (player.isAllIn) {
-
-                            this.addLog(`${player.name} 梭哈跟注 ${committed}`);
-
-                        } else {
-
-                            this.addLog(`${player.name} 跟注 ${committed}`);
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-        } else {
-
-            if (random < 0.3) {
-
-                player.folded = true;
-
-                this.addLog(`${player.name} 弃牌`);
-
-            } else {
-
-                const contribution = this.commitChips(player, player.chips);
-
-                if (contribution > 0) {
-
-                    if (player.bet > this.currentBet) {
-
-                        this.currentBet = player.bet;
-
-                        this.addLog(`${player.name} 梭哈至 ${player.bet}`);
-
-                        this.resetPlayerHasActed();
-
-                    } else {
-
-                        this.addLog(`${player.name} 梭哈投入 ${contribution}（不足跟注）`);
-
-                    }
-
-                }
-
-            }
-
+        
+        // Make decision based on intelligent analysis
+        const decision = this.makeAIDecision(player, handStrength, position, potOdds, callAmount);
+        
+        this.executeAIDecision(player, decision, callAmount);
+        
+        player.hasActed = true;
+        this.nextPlayer();
+    }
+
+    // Evaluate AI hand strength (0-1 scale)
+    evaluateAIHandStrength(player) {
+        if (!player.cards || player.cards.length < 2) {
+            return this.AI_BASE_HAND_STRENGTH; // Default moderate strength
         }
 
+        const allCards = [...player.cards, ...this.communityCards];
+        
+        // Preflop evaluation
+        if (this.communityCards.length === 0) {
+            return this.evaluatePreflopStrength(player.cards);
+        }
+        
+        // Postflop evaluation
+        const handResult = this.evaluateHandFromCards(allCards);
+        const handTypeStrength = this.getHandTypeStrength(handResult.type);
+        
+        // Consider drawing potential
+        const drawingPotential = this.evaluateDrawingPotential(player.cards, this.communityCards);
+        
+        return Math.min(1.0, handTypeStrength + drawingPotential * 0.15);
+    }
 
+    // Evaluate preflop hand strength
+    evaluatePreflopStrength(cards) {
+        if (cards.length < 2) return this.AI_BASE_HAND_STRENGTH;
+        
+        const card1 = cards[0];
+        const card2 = cards[1];
+        const value1 = card1.value;
+        const value2 = card2.value;
+        const suited = card1.suit === card2.suit;
+        
+        const highCard = Math.max(value1, value2);
+        const lowCard = Math.min(value1, value2);
+        const gap = highCard - lowCard;
+        const isPair = value1 === value2;
+        
+        let strength = this.AI_BASE_HAND_STRENGTH; // Base strength
+        
+        // Pairs
+        if (isPair) {
+            if (highCard >= 13) strength = 0.95; // KK, AA
+            else if (highCard >= 11) strength = 0.85; // JJ, QQ
+            else if (highCard >= 9) strength = 0.75; // 99, TT
+            else if (highCard >= 7) strength = 0.65; // 77, 88
+            else strength = 0.55; // Small pairs
+            return strength;
+        }
+        
+        // High cards
+        if (highCard === 14) { // Ace
+            if (lowCard >= 12) strength = 0.80; // AK, AQ
+            else if (lowCard >= 10) strength = 0.70; // AJ, AT
+            else if (lowCard >= 6) strength = 0.55; // A6-A9
+            else strength = 0.50; // A2-A5
+        } else if (highCard >= 13) { // King
+            if (lowCard >= 11) strength = 0.70; // KQ, KJ
+            else if (lowCard >= 9) strength = 0.60; // KT, K9
+            else strength = 0.45;
+        } else if (highCard >= 11) { // Queen or Jack
+            if (lowCard >= 10) strength = 0.60; // QJ, QT, JT
+            else if (lowCard >= 9) strength = 0.50;
+            else strength = 0.40;
+        } else {
+            strength = 0.35;
+        }
+        
+        // Suited bonus
+        if (suited) strength += 0.05;
+        
+        // Connected cards bonus
+        if (gap <= 1) strength += 0.03;
+        else if (gap === 2) strength += 0.01;
+        
+        return Math.min(0.95, strength);
+    }
 
-        player.hasActed = true;
+    // Get hand type relative strength
+    getHandTypeStrength(handType) {
+        const strengths = {
+            '皇家同花顺': 1.00,
+            '同花顺': 0.98,
+            '四条': 0.95,
+            '葫芦': 0.90,
+            '同花': 0.80,
+            '顺子': 0.75,
+            '三条': 0.65,
+            '两对': 0.55,
+            '一对': 0.45,
+            '高牌': 0.30
+        };
+        return strengths[handType] || this.AI_BASE_HAND_STRENGTH;
+    }
 
-        this.nextPlayer();
+    // Evaluate drawing potential
+    evaluateDrawingPotential(holeCards, communityCards) {
+        if (communityCards.length === 0 || communityCards.length >= 5) {
+            return 0;
+        }
+        
+        const allCards = [...holeCards, ...communityCards];
+        let potential = 0;
+        
+        // Check for flush draw
+        const suitCounts = {};
+        allCards.forEach(card => {
+            suitCounts[card.suit] = (suitCounts[card.suit] || 0) + 1;
+        });
+        const suitCountValues = Object.values(suitCounts);
+        const maxSuitCount = suitCountValues.length > 0 ? Math.max(...suitCountValues) : 0;
+        if (maxSuitCount === 4) potential += 0.35; // Flush draw
+        
+        // Check for straight draw
+        const values = allCards.map(c => c.value).sort((a, b) => a - b);
+        const uniqueValues = [...new Set(values)];
+        
+        // Open-ended straight draw
+        for (let i = 0; i <= uniqueValues.length - 4; i++) {
+            const sequence = uniqueValues.slice(i, i + 4);
+            if (sequence.length === 4 && sequence[3] - sequence[0] === 3) {
+                potential += 0.30;
+                break;
+            }
+        }
+        
+        return Math.min(potential, 0.5);
+    }
 
+    // Get player position (early, middle, late)
+    getPlayerPosition(playerIndex) {
+        const activePlayers = this.getActivePlayers();
+        const activeCount = activePlayers.length;
+        
+        if (activeCount <= 2) return 'late';
+        
+        // Calculate position relative to dealer
+        let positionFromDealer = (playerIndex - this.dealerIndex + this.players.length) % this.players.length;
+        
+        if (positionFromDealer <= activeCount / 3) return 'early';
+        if (positionFromDealer <= 2 * activeCount / 3) return 'middle';
+        return 'late';
+    }
+
+    // Calculate pot odds
+    calculatePotOdds(player) {
+        const callAmount = this.currentBet - player.bet;
+        if (callAmount <= 0) return 1.0;
+        
+        const potAfterCall = this.pot + callAmount;
+        return callAmount / potAfterCall;
+    }
+
+    // Make AI decision based on analysis
+    makeAIDecision(player, handStrength, position, potOdds, callAmount) {
+        const random = Math.random();
+        const aggression = 0.3 + handStrength * 0.4; // Base aggression on hand strength
+        
+        // Position adjustments
+        let positionModifier = 0;
+        if (position === 'late') positionModifier = 0.1;
+        else if (position === 'early') positionModifier = -0.1;
+        
+        const adjustedStrength = Math.min(1.0, handStrength + positionModifier);
+        
+        if (callAmount <= 0) {
+            // No bet to call - decide between check and raise
+            if (player.chips === 0) {
+                return { action: 'check' };
+            }
+            
+            // Strong hands should bet for value
+            if (adjustedStrength > 0.7) {
+                if (random < 0.75) {
+                    const raiseSize = this.calculateRaiseSize(player, handStrength, 'value');
+                    return { action: 'raise', amount: raiseSize };
+                }
+                return { action: 'check' };
+            }
+            
+            // Medium hands - mix of check and small bets
+            if (adjustedStrength > 0.5) {
+                if (random < 0.4) {
+                    const raiseSize = this.calculateRaiseSize(player, handStrength, 'value');
+                    return { action: 'raise', amount: raiseSize };
+                }
+                return { action: 'check' };
+            }
+            
+            // Weak hands - mostly check, occasional bluff
+            if (adjustedStrength > 0.35 && random < 0.2 && position === 'late') {
+                const raiseSize = this.calculateRaiseSize(player, handStrength, 'bluff');
+                return { action: 'raise', amount: raiseSize };
+            }
+            
+            return { action: 'check' };
+        }
+        
+        // There's a bet to call
+        if (callAmount > player.chips) {
+            // Not enough chips to call
+            if (adjustedStrength > 0.55) {
+                return { action: 'all-in' };
+            }
+            if (random < 0.3) {
+                return { action: 'all-in' };
+            }
+            return { action: 'fold' };
+        }
+        
+        // Compare hand strength to pot odds
+        const shouldCall = adjustedStrength > potOdds * 1.5 || adjustedStrength > 0.6;
+        
+        // Very strong hands - raise or call
+        if (adjustedStrength > 0.75) {
+            if (random < 0.6) {
+                const raiseSize = this.calculateRaiseSize(player, handStrength, 'value');
+                if (callAmount + raiseSize <= player.chips) {
+                    return { action: 'raise', amount: raiseSize };
+                }
+            }
+            return { action: 'call' };
+        }
+        
+        // Good hands - mostly call, sometimes raise
+        if (adjustedStrength > 0.6) {
+            if (random < 0.3) {
+                const raiseSize = this.calculateRaiseSize(player, handStrength, 'value');
+                if (callAmount + raiseSize <= player.chips) {
+                    return { action: 'raise', amount: raiseSize };
+                }
+            }
+            return { action: 'call' };
+        }
+        
+        // Medium hands - use pot odds
+        if (shouldCall) {
+            if (random < 0.15 && position === 'late') {
+                const raiseSize = this.calculateRaiseSize(player, handStrength, 'bluff');
+                if (callAmount + raiseSize <= player.chips) {
+                    return { action: 'raise', amount: raiseSize };
+                }
+            }
+            return { action: 'call' };
+        }
+        
+        // Weak hands - fold mostly, occasional bluff
+        if (random < 0.1 && position === 'late' && callAmount < this.pot * 0.3) {
+            return { action: 'call' };
+        }
+        
+        return { action: 'fold' };
+    }
+
+    // Calculate intelligent raise size
+    calculateRaiseSize(player, handStrength, raiseType) {
+        const potSize = this.pot;
+        const currentBetSize = this.currentBet;
+        
+        let raiseSize;
+        
+        if (raiseType === 'value') {
+            // Value bet - size based on hand strength and pot
+            const sizingFactor = 0.5 + handStrength * 0.5; // 0.5x to 1.0x pot
+            raiseSize = Math.floor(potSize * sizingFactor);
+        } else {
+            // Bluff - smaller sizing
+            raiseSize = Math.floor(potSize * (0.4 + Math.random() * 0.3)); // 0.4x to 0.7x pot
+        }
+        
+        // Minimum raise
+        const minRaise = Math.max(this.bigBlind, currentBetSize);
+        raiseSize = Math.max(raiseSize, minRaise);
+        
+        // Don't raise more than available chips
+        const availableAfterCall = player.chips - (currentBetSize - player.bet);
+        raiseSize = Math.min(raiseSize, availableAfterCall);
+        
+        return Math.max(1, raiseSize);
+    }
+
+    // Execute AI decision
+    executeAIDecision(player, decision, callAmount) {
+        switch (decision.action) {
+            case 'check':
+                this.addLog(`${player.name} 过牌`);
+                break;
+                
+            case 'call': {
+                const committed = this.commitChips(player, callAmount);
+                if (committed > 0) {
+                    if (player.isAllIn) {
+                        this.addLog(`${player.name} 梭哈跟注 ${committed}`);
+                    } else {
+                        this.addLog(`${player.name} 跟注 ${committed}`);
+                    }
+                }
+                break;
+            }
+            
+            case 'raise': {
+                const totalNeeded = callAmount + decision.amount;
+                const actualAmount = Math.min(totalNeeded, player.chips);
+                const committed = this.commitChips(player, actualAmount);
+                
+                if (committed > 0) {
+                    this.currentBet = player.bet;
+                    if (player.isAllIn) {
+                        this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+                    } else {
+                        this.addLog(`${player.name} 加注至 ${player.bet}`);
+                    }
+                    this.resetPlayerHasActed();
+                }
+                break;
+            }
+            
+            case 'all-in': {
+                const contribution = this.commitChips(player, player.chips);
+                if (contribution > 0) {
+                    if (player.bet > this.currentBet) {
+                        this.currentBet = player.bet;
+                        this.addLog(`${player.name} 梭哈至 ${player.bet}`);
+                        this.resetPlayerHasActed();
+                    } else {
+                        this.addLog(`${player.name} 梭哈投入 ${contribution}（不足跟注）`);
+                    }
+                }
+                break;
+            }
+            
+            case 'fold':
+                player.folded = true;
+                this.addLog(`${player.name} 弃牌`);
+                break;
+        }
     }
 
 
